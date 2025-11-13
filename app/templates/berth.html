@@ -3,18 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BHP Ship Monitoring</title>
+    <title>{{ berth_name }} - BHP Ship Monitoring</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
-    <h1>BHP Ship Monitoring</h1>
+    <div class="header-nav">
+        <a href="/" class="back-button">← Back to Location</a>
+        <h1>{{ berth_name }}</h1>
+    </div>
+    
     <div id="location-name-container">
         <h2 id="location-name">Loading location...</h2>
     </div>
-    <div id="berths-container">
-        <!-- Berth cards will be loaded here -->
+
+    <div id="berth-detail-container">
+        <!-- Berth details will be loaded here -->
     </div>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/berth.js') }}"></script>
 </body>
 </html>
