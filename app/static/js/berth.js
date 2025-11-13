@@ -55,8 +55,8 @@
     }
     
     function updateConsecutiveChanges(key, history) {
-        // Check last CONSECUTIVE_CHANGES_THRESHOLD changes in history
-        if (!history || history.length < 2) {
+        // Need at least CONSECUTIVE_CHANGES_THRESHOLD + 1 values to detect CONSECUTIVE_CHANGES_THRESHOLD consecutive changes
+        if (!history || history.length < CONSECUTIVE_CHANGES_THRESHOLD + 1) {
             return { direction: 'neutral', count: 0 };
         }
         
@@ -68,6 +68,12 @@
         for (let i = history.length - 1; i > 0; i--) {
             const current = history[i];
             const previous = history[i - 1];
+            
+            // Skip null/undefined values
+            if (current === null || current === undefined || previous === null || previous === undefined) {
+                break;
+            }
+            
             const trend = getTrend(current, previous);
             
             if (trend === 'neutral') {
@@ -1297,12 +1303,37 @@
         });
 
         // Render normal hooks grouped by bollard (like image 4)
+        // Combine white and orange hooks for rendering (red hooks are only in alerts)
         const bollardsMap = new Map();
+        
+        // Add white hooks
         whiteHooks.forEach(h => {
             if (!bollardsMap.has(h.bollard)) {
                 bollardsMap.set(h.bollard, []);
             }
-            bollardsMap.get(h.bollard).push(h);
+            bollardsMap.get(h.bollard).push({ ...h, isOrange: false });
+        });
+        
+        // Add orange hooks to their respective bollards
+        orangeHooks.forEach(hook => {
+            const bollardName = hook.info.bollardName;
+            // Find the bollard object
+            const bollard = berth.bollards.find(b => b && b.name === bollardName);
+            if (bollard) {
+                if (!bollardsMap.has(bollard)) {
+                    bollardsMap.set(bollard, []);
+                }
+                // Find the hook object
+                const hookObj = bollard.hooks.find(h => h && h.name === hook.info.hookName);
+                if (hookObj) {
+                    bollardsMap.get(bollard).push({
+                        bollard: bollard,
+                        hook: hookObj,
+                        info: hook.info,
+                        isOrange: true
+                    });
+                }
+            }
         });
 
         bollardsMap.forEach((hooks, bollard) => {
@@ -1328,6 +1359,11 @@
             hooks.forEach(h => {
                 const row = document.createElement('div');
                 row.className = 'data-row';
+                
+                // Add orange styling if this hook has consecutive changes
+                if (h.isOrange) {
+                    row.classList.add('data-row-orange');
+                }
 
                 const label = document.createElement('span');
                 label.className = 'data-label';

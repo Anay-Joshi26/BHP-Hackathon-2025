@@ -274,6 +274,16 @@ h1 {
     font-weight: 600;
 }
 
+.data-row-orange {
+    background: #fed7aa !important;
+    border-left: 4px solid #ea580c !important;
+}
+
+.data-row-orange .data-label {
+    color: #9a3412;
+    font-weight: 700;
+}
+
 .subsection {
     margin-left: 20px;
     margin-bottom: 30px;
