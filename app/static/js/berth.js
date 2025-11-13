@@ -179,10 +179,28 @@
         const statusSection = document.createElement('div');
         statusSection.className = 'status-section';
         
+        const audio = document.getElementById('alertSound');
+
         if (hasIssues) {
-            statusSection.classList.add('status-red');
-        } else {
+        statusSection.classList.add('status-red');
+        
+        // Play alert sound when issues are detected
+            if (audio) {
+                audio.pause();
+
+                // Reset playback in case it's already playing
+                audio.currentTime = 0;
+                audio.play().catch(err => {
+                    console.log("Audio playback failed (browser restriction):", err);
+                });
+        }
+    } else {
             statusSection.classList.add('status-green');
+                    // Stop audio when system returns to normal
+            if (audio) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
         }
         
         const statusContent = document.createElement('div');
