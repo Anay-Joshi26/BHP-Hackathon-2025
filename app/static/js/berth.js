@@ -12,8 +12,8 @@
     const CONSECUTIVE_CHANGES_THRESHOLD = 5;
     
     // Distance threshold constants
-    const DISTANCE_THRESHOLD_HIGH = 12;
-    const DISTANCE_THRESHOLD_LOW = 2;
+    const DISTANCE_THRESHOLD_HIGH = 15;
+    const DISTANCE_THRESHOLD_LOW = 0;
     
     // Track displayed items for delay
     const displayedPriorityItems = new Set();
@@ -194,6 +194,270 @@
         });
 
         return valuesContainer;
+    }
+    
+    function prepareRadarChartData(radarsData) {
+        const traces = [];
+        const annotations = [];
+        const colors = [
+            '#667eea', '#f093fb', '#4facfe', '#43e97b', 
+            '#fa709a', '#fee140', '#30cfd0', '#a8edea',
+            '#ff9a9e', '#fecfef', '#ffecd2', '#a8c8ec'
+        ];
+        
+        // Find min and max values for scaling
+        let minValue = Infinity;
+        let maxValue = -Infinity;
+        let maxX = 5;
+        
+        radarsData.forEach((radar, index) => {
+            const history = radarHistory[radar.key] || [];
+            if (history.length === 0) return;
+            
+            // Create x axis data (time points)
+            const x = history.map((_, i) => i + 1);
+            const y = history.filter(val => val !== null && val !== undefined);
+            const xFiltered = x.slice(0, y.length);
+            
+            if (y.length === 0) return;
+            
+            maxX = Math.max(maxX, Math.max(...xFiltered));
+            
+            // Update min/max
+            y.forEach(val => {
+                minValue = Math.min(minValue, val);
+                maxValue = Math.max(maxValue, val);
+            });
+            
+            // Get the last point for annotation
+            const lastX = xFiltered[xFiltered.length - 1];
+            const lastY = y[y.length - 1];
+            
+            // Create trace for this radar
+            traces.push({
+                x: xFiltered,
+                y: y,
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: radar.name,
+                line: {
+                    color: colors[index % colors.length],
+                    width: 2.5
+                },
+                marker: {
+                    color: colors[index % colors.length],
+                    size: 7,
+                    line: {
+                        color: 'white',
+                        width: 1
+                    }
+                },
+                hovertemplate: `<b>${radar.name}</b><br>` +
+                              `Distance: %{y:.2f}<br>` +
+                              `Time: %{x}<extra></extra>`,
+                showlegend: false
+            });
+            
+            // Add annotation for line label
+            annotations.push({
+                x: lastX,
+                y: lastY,
+                text: radar.name,
+                showarrow: false,
+                font: {
+                    color: colors[index % colors.length],
+                    size: 11,
+                    family: 'Arial, sans-serif',
+                    weight: 'bold'
+                },
+                bgcolor: 'rgba(255, 255, 255, 0.8)',
+                bordercolor: colors[index % colors.length],
+                borderwidth: 1,
+                borderpad: 4,
+                xanchor: 'left',
+                xshift: 8
+            });
+        });
+        
+        // Include thresholds in the range
+        minValue = Math.min(minValue, DISTANCE_THRESHOLD_LOW - 1);
+        maxValue = Math.max(maxValue, DISTANCE_THRESHOLD_HIGH + 1);
+        
+        // Add padding to range
+        const range = maxValue - minValue;
+        const padding = range * 0.1;
+        minValue -= padding;
+        maxValue += padding;
+        
+        // Add threshold lines
+        traces.push({
+            x: [0.5, maxX + 0.5],
+            y: [DISTANCE_THRESHOLD_LOW, DISTANCE_THRESHOLD_LOW],
+            type: 'scatter',
+            mode: 'lines',
+            name: `Low Threshold (${DISTANCE_THRESHOLD_LOW})`,
+            line: {
+                color: '#dc2626',
+                width: 2,
+                dash: 'dash'
+            },
+            hoverinfo: 'skip',
+            showlegend: false
+        });
+        
+        traces.push({
+            x: [0.5, maxX + 0.5],
+            y: [DISTANCE_THRESHOLD_HIGH, DISTANCE_THRESHOLD_HIGH],
+            type: 'scatter',
+            mode: 'lines',
+            name: `High Threshold (${DISTANCE_THRESHOLD_HIGH})`,
+            line: {
+                color: '#dc2626',
+                width: 2,
+                dash: 'dash'
+            },
+            hoverinfo: 'skip',
+            showlegend: false
+        });
+        
+        // Add threshold labels as annotations
+        annotations.push({
+            x: maxX + 0.3,
+            y: DISTANCE_THRESHOLD_LOW,
+            text: `Low: ${DISTANCE_THRESHOLD_LOW}`,
+            showarrow: false,
+            font: {
+                color: '#dc2626',
+                size: 10,
+                family: 'Arial, sans-serif'
+            },
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            bordercolor: '#dc2626',
+            borderwidth: 1,
+            borderpad: 3,
+            xanchor: 'left'
+        });
+        
+        annotations.push({
+            x: maxX + 0.3,
+            y: DISTANCE_THRESHOLD_HIGH,
+            text: `High: ${DISTANCE_THRESHOLD_HIGH}`,
+            showarrow: false,
+            font: {
+                color: '#dc2626',
+                size: 10,
+                family: 'Arial, sans-serif'
+            },
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            bordercolor: '#dc2626',
+            borderwidth: 1,
+            borderpad: 3,
+            xanchor: 'left'
+        });
+        
+        return { traces, annotations, minValue, maxValue, maxX };
+    }
+    
+    function createRadarChart(radarsData) {
+        // Create chart container with consistent ID
+        const chartContainer = document.createElement('div');
+        chartContainer.className = 'radar-chart-container';
+        const chartId = 'chart-radars-overview';
+        chartContainer.id = chartId;
+        
+        const chartData = prepareRadarChartData(radarsData);
+        
+        // Layout configuration
+        const layout = {
+            title: {
+                text: 'Radar Distance History',
+                font: {
+                    size: 16,
+                    color: '#2d3748',
+                    family: 'Arial, sans-serif'
+                },
+                x: 0.5,
+                xanchor: 'center'
+            },
+            xaxis: {
+                title: {
+                    text: 'Time',
+                    font: { size: 13, color: '#718096' }
+                },
+                tickfont: { size: 11, color: '#718096' },
+                gridcolor: '#e2e8f0',
+                zeroline: false,
+                range: [0.5, Math.max(chartData.maxX + 0.5, 5.5)],
+                showgrid: true
+            },
+            yaxis: {
+                title: {
+                    text: 'Distance',
+                    font: { size: 13, color: '#718096' }
+                },
+                tickfont: { size: 11, color: '#718096' },
+                gridcolor: '#e2e8f0',
+                range: [chartData.minValue, chartData.maxValue],
+                showgrid: true
+            },
+            plot_bgcolor: 'white',
+            paper_bgcolor: 'white',
+            hovermode: 'closest',
+            showlegend: false,
+            annotations: chartData.annotations,
+            margin: { l: 70, r: 80, t: 60, b: 60 },
+            height: 450,
+            autosize: true
+        };
+        
+        // Configuration
+        const config = {
+            responsive: true,
+            displayModeBar: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+            toImageButtonOptions: {
+                format: 'png',
+                filename: 'radar-distance-history',
+                height: 450,
+                width: 800,
+                scale: 2
+            }
+        };
+        
+        // Render the chart after container is added to DOM
+        setTimeout(() => {
+            if (typeof Plotly !== 'undefined') {
+                Plotly.newPlot(chartId, chartData.traces, layout, config);
+            }
+        }, 100);
+        
+        return chartContainer;
+    }
+    
+    function updateRadarChart(chartId, radarsData) {
+        if (typeof Plotly === 'undefined' || !document.getElementById(chartId)) return;
+        
+        const chartData = prepareRadarChartData(radarsData);
+        
+        // Update only the data, not the layout
+        const update = {
+            x: chartData.traces.map(t => t.x),
+            y: chartData.traces.map(t => t.y),
+            'marker.size': chartData.traces.map(t => t.marker?.size || 7),
+            'line.width': chartData.traces.map(t => t.line?.width || 2.5)
+        };
+        
+        const layoutUpdate = {
+            'yaxis.range': [chartData.minValue, chartData.maxValue],
+            'xaxis.range': [0.5, Math.max(chartData.maxX + 0.5, 5.5)],
+            'annotations': chartData.annotations
+        };
+        
+        Plotly.update(chartId, update, layoutUpdate, {}, {transition: {
+            duration: 300,
+            easing: 'cubic-in-out'
+        }});
     }
     
     function prepareBollardChartData(hooksData) {
@@ -655,7 +919,10 @@
 
         // Preserve existing chart containers before clearing
         const existingCharts = new Map();
+        let existingRadarChart = null;
+        
         if (containers.berthDetailContainer) {
+            // Preserve bollard charts
             const chartContainers = containers.berthDetailContainer.querySelectorAll('.bollard-chart-container');
             chartContainers.forEach(chartContainer => {
                 const chartId = chartContainer.id;
@@ -667,6 +934,12 @@
                     });
                 }
             });
+            
+            // Preserve radar chart
+            const radarChart = containers.berthDetailContainer.querySelector('.radar-chart-container');
+            if (radarChart) {
+                existingRadarChart = radarChart;
+            }
         }
         
         // Clear container
@@ -697,6 +970,7 @@
         const redRadarAlerts = [];
         const orangeRadarAlerts = [];
         const radarRows = [];
+        const radarsForChart = []; // Store radar data for chart
         
         (berth.radars || []).forEach(r => {
             if (r && r.distanceStatus === 'ACTIVE') {
@@ -716,6 +990,12 @@
                 // Check for distance threshold violations (prioritize red over orange)
                 const isThresholdViolation = shipDistance !== null && shipDistance !== undefined && 
                     (shipDistance < DISTANCE_THRESHOLD_LOW || shipDistance > DISTANCE_THRESHOLD_HIGH);
+                
+                // Store radar data for chart
+                radarsForChart.push({
+                    key: key,
+                    name: r.name
+                });
                 
                 const row = document.createElement('div');
                 row.className = 'data-row';
@@ -860,8 +1140,37 @@
                 }
             }
             
-            // Add normal radar rows at the bottom
-            radarRows.forEach(row => radarSection.appendChild(row));
+            // Create radar content container (rows on left, chart on right)
+            const radarContentContainer = document.createElement('div');
+            radarContentContainer.className = 'radar-content-container';
+            
+            const radarRowsContainer = document.createElement('div');
+            radarRowsContainer.className = 'radar-rows-container';
+            
+            // Add normal radar rows
+            radarRows.forEach(row => radarRowsContainer.appendChild(row));
+            
+            radarContentContainer.appendChild(radarRowsContainer);
+            
+            // Add chart on the right if there are active radars
+            if (radarsForChart.length > 0) {
+                const chartId = 'chart-radars-overview';
+                
+                if (existingRadarChart) {
+                    // Use preserved chart container and update it
+                    radarContentContainer.appendChild(existingRadarChart);
+                    // Update chart data after a short delay to ensure it's in DOM
+                    setTimeout(() => {
+                        updateRadarChart(chartId, radarsForChart);
+                    }, 50);
+                } else {
+                    // Create new chart
+                    const radarChartContainer = createRadarChart(radarsForChart);
+                    radarContentContainer.appendChild(radarChartContainer);
+                }
+            }
+            
+            radarSection.appendChild(radarContentContainer);
         }
 
         berthCard.appendChild(radarSection);

@@ -325,6 +325,37 @@ h1 {
     height: 450px !important;
 }
 
+.radar-content-container {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+.radar-rows-container {
+    flex: 1;
+    min-width: 0;
+}
+
+.radar-chart-container {
+    flex-shrink: 0;
+    width: 650px;
+    min-width: 650px;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.radar-chart-container .js-plotly-plot {
+    width: 100% !important;
+    height: 450px !important;
+}
+
+.radar-chart-container .plotly {
+    width: 100% !important;
+    height: 450px !important;
+}
+
 .empty-state {
     color: #718096;
     font-style: italic;
