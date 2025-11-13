@@ -11,6 +11,10 @@
     const TENSION_THRESHOLD_LOW = -1;
     const CONSECUTIVE_CHANGES_THRESHOLD = 5;
     
+    // Distance threshold constants
+    const DISTANCE_THRESHOLD_HIGH = 12;
+    const DISTANCE_THRESHOLD_LOW = 2;
+    
     // Track displayed items for delay
     const displayedPriorityItems = new Set();
 
@@ -88,19 +92,36 @@
         
         // Check threshold
         if (tension > TENSION_THRESHOLD_HIGH) {
+            // Calculate percentage decrease needed to reach high threshold
+            const decreaseNeeded = tension - TENSION_THRESHOLD_HIGH;
+            const percentage = tension !== 0 ? (decreaseNeeded / tension) * 100 : 0;
             issues.push({
                 type: 'threshold',
                 severity: 'high',
-                message: 'Higher than threshold',
+                message: `Tension higher than the threshold decrease it by ${formatValue(percentage)}%`,
                 color: 'red'
             });
-        } else if (tension < TENSION_THRESHOLD_LOW) {
-            issues.push({
-                type: 'threshold',
-                severity: 'low',
-                message: 'Lower than threshold',
-                color: 'red'
-            });
+        } else if (tension < TENSION_THRESHOLD_LOW && tension !== null && tension !== undefined) {
+            // Calculate percentage increase needed to reach low threshold
+            // Avoid division by zero for very small or zero tension values
+            if (Math.abs(tension) < 0.001) {
+                // If tension is essentially zero, just state it needs to reach threshold
+                issues.push({
+                    type: 'threshold',
+                    severity: 'low',
+                    message: `Tension lower than the threshold increase it to ${TENSION_THRESHOLD_LOW}`,
+                    color: 'red'
+                });
+            } else {
+                const increaseNeeded = TENSION_THRESHOLD_LOW - tension;
+                const percentage = (increaseNeeded / Math.abs(tension)) * 100;
+                issues.push({
+                    type: 'threshold',
+                    severity: 'low',
+                    message: `Tension lower than the threshold increase it by ${formatValue(percentage)}%`,
+                    color: 'red'
+                });
+            }
         }
         
         // Check consecutive changes
@@ -175,7 +196,271 @@
         return valuesContainer;
     }
     
-    function createStatusSection(hasIssues) {
+    function prepareBollardChartData(hooksData) {
+        const traces = [];
+        const annotations = [];
+        const colors = [
+            '#667eea', '#f093fb', '#4facfe', '#43e97b', 
+            '#fa709a', '#fee140', '#30cfd0', '#a8edea',
+            '#ff9a9e', '#fecfef', '#ffecd2', '#a8c8ec'
+        ];
+        
+        // Find min and max values for scaling
+        let minValue = Infinity;
+        let maxValue = -Infinity;
+        let maxX = 5;
+        
+        hooksData.forEach((hook, index) => {
+            const history = hookHistory[hook.key] || [];
+            if (history.length === 0) return;
+            
+            // Create x axis data (time points)
+            const x = history.map((_, i) => i + 1);
+            const y = history.filter(val => val !== null && val !== undefined);
+            const xFiltered = x.slice(0, y.length);
+            
+            if (y.length === 0) return;
+            
+            maxX = Math.max(maxX, Math.max(...xFiltered));
+            
+            // Update min/max
+            y.forEach(val => {
+                minValue = Math.min(minValue, val);
+                maxValue = Math.max(maxValue, val);
+            });
+            
+            // Get the last point for annotation
+            const lastX = xFiltered[xFiltered.length - 1];
+            const lastY = y[y.length - 1];
+            
+            // Create trace for this hook
+            traces.push({
+                x: xFiltered,
+                y: y,
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: `${hook.hookName} (${hook.attachedLine})`,
+                line: {
+                    color: colors[index % colors.length],
+                    width: 2.5
+                },
+                marker: {
+                    color: colors[index % colors.length],
+                    size: 7,
+                    line: {
+                        color: 'white',
+                        width: 1
+                    }
+                },
+                hovertemplate: `<b>${hook.hookName} (${hook.attachedLine})</b><br>` +
+                              `Tension: %{y:.2f}<br>` +
+                              `Time: %{x}<extra></extra>`,
+                showlegend: false
+            });
+            
+            // Add annotation for line label
+            annotations.push({
+                x: lastX,
+                y: lastY,
+                text: `${hook.hookName}`,
+                showarrow: false,
+                font: {
+                    color: colors[index % colors.length],
+                    size: 11,
+                    family: 'Arial, sans-serif',
+                    weight: 'bold'
+                },
+                bgcolor: 'rgba(255, 255, 255, 0.8)',
+                bordercolor: colors[index % colors.length],
+                borderwidth: 1,
+                borderpad: 4,
+                xanchor: 'left',
+                xshift: 8
+            });
+        });
+        
+        // Include thresholds in the range
+        minValue = Math.min(minValue, TENSION_THRESHOLD_LOW - 1);
+        maxValue = Math.max(maxValue, TENSION_THRESHOLD_HIGH + 1);
+        
+        // Add padding to range
+        const range = maxValue - minValue;
+        const padding = range * 0.1;
+        minValue -= padding;
+        maxValue += padding;
+        
+        // Add threshold lines
+        traces.push({
+            x: [0.5, maxX + 0.5],
+            y: [TENSION_THRESHOLD_LOW, TENSION_THRESHOLD_LOW],
+            type: 'scatter',
+            mode: 'lines',
+            name: `Low Threshold (${TENSION_THRESHOLD_LOW})`,
+            line: {
+                color: '#dc2626',
+                width: 2,
+                dash: 'dash'
+            },
+            hoverinfo: 'skip',
+            showlegend: false
+        });
+        
+        traces.push({
+            x: [0.5, maxX + 0.5],
+            y: [TENSION_THRESHOLD_HIGH, TENSION_THRESHOLD_HIGH],
+            type: 'scatter',
+            mode: 'lines',
+            name: `High Threshold (${TENSION_THRESHOLD_HIGH})`,
+            line: {
+                color: '#dc2626',
+                width: 2,
+                dash: 'dash'
+            },
+            hoverinfo: 'skip',
+            showlegend: false
+        });
+        
+        // Add threshold labels as annotations
+        annotations.push({
+            x: maxX + 0.3,
+            y: TENSION_THRESHOLD_LOW,
+            text: `Low: ${TENSION_THRESHOLD_LOW}`,
+            showarrow: false,
+            font: {
+                color: '#dc2626',
+                size: 10,
+                family: 'Arial, sans-serif'
+            },
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            bordercolor: '#dc2626',
+            borderwidth: 1,
+            borderpad: 3,
+            xanchor: 'left'
+        });
+        
+        annotations.push({
+            x: maxX + 0.3,
+            y: TENSION_THRESHOLD_HIGH,
+            text: `High: ${TENSION_THRESHOLD_HIGH}`,
+            showarrow: false,
+            font: {
+                color: '#dc2626',
+                size: 10,
+                family: 'Arial, sans-serif'
+            },
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            bordercolor: '#dc2626',
+            borderwidth: 1,
+            borderpad: 3,
+            xanchor: 'left'
+        });
+        
+        return { traces, annotations, minValue, maxValue, maxX };
+    }
+    
+    function createBollardChart(bollardName, hooksData) {
+        // Create chart container with consistent ID based on bollard name
+        const chartContainer = document.createElement('div');
+        chartContainer.className = 'bollard-chart-container';
+        const chartId = `chart-${bollardName.replace(/\s+/g, '-')}`;
+        chartContainer.id = chartId;
+        
+        const chartData = prepareBollardChartData(hooksData);
+        
+        // Layout configuration
+        const layout = {
+            title: {
+                text: `${bollardName} Tension History`,
+                font: {
+                    size: 16,
+                    color: '#2d3748',
+                    family: 'Arial, sans-serif'
+                },
+                x: 0.5,
+                xanchor: 'center'
+            },
+            xaxis: {
+                title: {
+                    text: 'Time',
+                    font: { size: 13, color: '#718096' }
+                },
+                tickfont: { size: 11, color: '#718096' },
+                gridcolor: '#e2e8f0',
+                zeroline: false,
+                range: [0.5, Math.max(chartData.maxX + 0.5, 5.5)],
+                showgrid: true
+            },
+            yaxis: {
+                title: {
+                    text: 'Tension',
+                    font: { size: 13, color: '#718096' }
+                },
+                tickfont: { size: 11, color: '#718096' },
+                gridcolor: '#e2e8f0',
+                range: [chartData.minValue, chartData.maxValue],
+                showgrid: true
+            },
+            plot_bgcolor: 'white',
+            paper_bgcolor: 'white',
+            hovermode: 'closest',
+            showlegend: false,
+            annotations: chartData.annotations,
+            margin: { l: 70, r: 80, t: 60, b: 60 },
+            height: 450,
+            autosize: true
+        };
+        
+        // Configuration
+        const config = {
+            responsive: true,
+            displayModeBar: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+            toImageButtonOptions: {
+                format: 'png',
+                filename: `${bollardName}-tension-history`,
+                height: 450,
+                width: 800,
+                scale: 2
+            }
+        };
+        
+        // Render the chart after container is added to DOM
+        setTimeout(() => {
+            if (typeof Plotly !== 'undefined') {
+                Plotly.newPlot(chartId, chartData.traces, layout, config);
+            }
+        }, 100);
+        
+        return chartContainer;
+    }
+    
+    function updateBollardChart(chartId, hooksData) {
+        if (typeof Plotly === 'undefined' || !document.getElementById(chartId)) return;
+        
+        const chartData = prepareBollardChartData(hooksData);
+        
+        // Update only the data, not the layout
+        const update = {
+            x: chartData.traces.map(t => t.x),
+            y: chartData.traces.map(t => t.y),
+            'marker.size': chartData.traces.map(t => t.marker?.size || 7),
+            'line.width': chartData.traces.map(t => t.line?.width || 2.5)
+        };
+        
+        const layoutUpdate = {
+            'yaxis.range': [chartData.minValue, chartData.maxValue],
+            'xaxis.range': [0.5, Math.max(chartData.maxX + 0.5, 5.5)],
+            'annotations': chartData.annotations
+        };
+        
+        Plotly.update(chartId, update, layoutUpdate, {}, {transition: {
+            duration: 300,
+            easing: 'cubic-in-out'
+        }});
+    }
+    
+    function createStatusSection(hasIssues, recommendations = []) {
         const statusSection = document.createElement('div');
         statusSection.className = 'status-section';
         
@@ -228,6 +513,25 @@
         statusContent.appendChild(statusTextContainer);
         statusSection.appendChild(statusContent);
         
+        // Add recommendations if there are issues
+        if (hasIssues && recommendations.length > 0) {
+            const recommendationsContainer = document.createElement('div');
+            recommendationsContainer.className = 'status-recommendations';
+            
+            const recommendationsList = document.createElement('ul');
+            recommendationsList.className = 'recommendations-list';
+            
+            recommendations.forEach(recommendation => {
+                const listItem = document.createElement('li');
+                listItem.className = 'recommendation-item';
+                listItem.textContent = recommendation;
+                recommendationsList.appendChild(listItem);
+            });
+            
+            recommendationsContainer.appendChild(recommendationsList);
+            statusSection.appendChild(recommendationsContainer);
+        }
+        
         return statusSection;
     }
     
@@ -259,9 +563,9 @@
         return alertItem;
     }
     
-    function createRadarAlertItem(radarName, directionText) {
+    function createRadarAlertItem(radarName, directionText, isThreshold = false, distance = null) {
         const alertItem = document.createElement('div');
-        alertItem.className = 'radar-alert-item';
+        alertItem.className = isThreshold ? 'radar-alert-item radar-alert-red' : 'radar-alert-item radar-alert-orange';
         
         const leftContent = document.createElement('div');
         leftContent.className = 'radar-alert-left';
@@ -270,11 +574,41 @@
         radarLabel.className = 'radar-alert-label';
         radarLabel.textContent = radarName;
         
-        leftContent.appendChild(radarLabel);
+        if (isThreshold && distance !== null) {
+            const distanceValue = document.createElement('span');
+            distanceValue.className = 'radar-alert-distance';
+            distanceValue.textContent = `Distance: ${formatValue(distance)}`;
+            leftContent.appendChild(radarLabel);
+            leftContent.appendChild(distanceValue);
+        } else {
+            leftContent.appendChild(radarLabel);
+        }
         
         const rightContent = document.createElement('div');
         rightContent.className = 'radar-alert-right';
-        rightContent.textContent = `${directionText} ${CONSECUTIVE_CHANGES_THRESHOLD} consecutive times`;
+        
+        if (isThreshold && distance !== null) {
+            let message = '';
+            let percentage = 0;
+            
+            if (distance < DISTANCE_THRESHOLD_LOW) {
+                // Calculate percentage increase needed to reach low threshold
+                const increaseNeeded = DISTANCE_THRESHOLD_LOW - distance;
+                percentage = (increaseNeeded / distance) * 100;
+                message = `Distance is below the threshold increase it by ${formatValue(percentage)}%`;
+            } else if (distance > DISTANCE_THRESHOLD_HIGH) {
+                // Calculate percentage decrease needed to reach high threshold
+                const decreaseNeeded = distance - DISTANCE_THRESHOLD_HIGH;
+                percentage = (decreaseNeeded / distance) * 100;
+                message = `Distance is higher than the threshold decrease it by ${formatValue(percentage)}%`;
+            } else {
+                message = 'Distance is within threshold';
+            }
+            
+            rightContent.textContent = message;
+        } else {
+            rightContent.textContent = `${directionText} ${CONSECUTIVE_CHANGES_THRESHOLD} consecutive times`;
+        }
         
         alertItem.appendChild(leftContent);
         alertItem.appendChild(rightContent);
@@ -295,13 +629,19 @@
             berths = data.berths;
         }
 
-        // Display location name
-        if (containers.locationNameContainer) {
-            containers.locationNameContainer.textContent = locationName;
-        }
-
         // Find the berth matching the current page
         const berth = berths.find(b => b && b.name === berthName);
+        
+        // Get ship name from berth
+        const shipName = (berth && berth.ship && berth.ship.name) ? berth.ship.name : 'No Ship';
+        
+        // Display location name and ship name
+        if (containers.locationNameContainer) {
+            containers.locationNameContainer.innerHTML = `
+                <span class="location-name">${locationName}</span>
+                <span class="ship-name">${shipName}</span>
+            `;
+        }
         
         if (!berth) {
             // Show waiting message if no berth found yet
@@ -313,13 +653,33 @@
             return;
         }
 
+        // Preserve existing chart containers before clearing
+        const existingCharts = new Map();
+        if (containers.berthDetailContainer) {
+            const chartContainers = containers.berthDetailContainer.querySelectorAll('.bollard-chart-container');
+            chartContainers.forEach(chartContainer => {
+                const chartId = chartContainer.id;
+                if (chartId) {
+                    const bollardName = chartId.replace('chart-', '').replace(/-/g, ' ');
+                    existingCharts.set(bollardName, {
+                        element: chartContainer,
+                        id: chartId
+                    });
+                }
+            });
+        }
+        
         // Clear container
         containers.berthDetailContainer.innerHTML = '';
 
         // Track all issues for status section
         let hasAnyIssues = false;
-        const radarAlerts = [];
         const hookIssues = new Map(); // key -> { red: boolean, orange: boolean }
+        
+        // Initialize chart tracking
+        if (!window.bollardChartsMap) {
+            window.bollardChartsMap = new Map();
+        }
 
         // Create main berth card
         const berthCard = document.createElement('div');
@@ -334,8 +694,9 @@
         radarSection.appendChild(radarTitle);
 
         let hasActiveRadars = false;
+        const redRadarAlerts = [];
+        const orangeRadarAlerts = [];
         const radarRows = [];
-        const orangeRadarRows = [];
         
         (berth.radars || []).forEach(r => {
             if (r && r.distanceStatus === 'ACTIVE') {
@@ -352,6 +713,10 @@
                 const history = radarHistory[key];
                 const consecutiveData = updateConsecutiveChanges(key, history);
                 
+                // Check for distance threshold violations (prioritize red over orange)
+                const isThresholdViolation = shipDistance !== null && shipDistance !== undefined && 
+                    (shipDistance < DISTANCE_THRESHOLD_LOW || shipDistance > DISTANCE_THRESHOLD_HIGH);
+                
                 const row = document.createElement('div');
                 row.className = 'data-row';
                 
@@ -363,19 +728,29 @@
                 const valuesContainer = renderHistoryValues(radarHistory[key], key, previousValue);
                 row.appendChild(valuesContainer);
                 
-                // Check if radar has 5 consecutive changes
-                if (consecutiveData.count >= CONSECUTIVE_CHANGES_THRESHOLD) {
+                // Check for threshold violations first (red)
+                if (isThresholdViolation) {
+                    hasAnyIssues = true;
+                    row.classList.add('data-row-red');
+                    
+                    redRadarAlerts.push({
+                        name: r.name,
+                        distance: shipDistance
+                    });
+                } else if (consecutiveData.count >= CONSECUTIVE_CHANGES_THRESHOLD) {
+                    // Check for consecutive changes (orange) - only if not threshold violation
                     hasAnyIssues = true;
                     row.classList.add('data-row-orange');
                     
                     const directionText = consecutiveData.direction === 'up' ? 'Increased' : 'Decreased';
-                    radarAlerts.push({
+                    orangeRadarAlerts.push({
                         name: r.name,
                         direction: directionText
                     });
                     
-                    orangeRadarRows.push(row);
+                    radarRows.push(row);
                 } else {
+                    // Normal radar
                     radarRows.push(row);
                 }
             }
@@ -387,77 +762,106 @@
             emptyState.textContent = 'No active radars';
             radarSection.appendChild(emptyState);
         } else {
-            // Add orange radar alerts at the top
-            if (radarAlerts.length > 0) {
-                const newItems = radarAlerts.filter(alert => {
+            // Add red radar alerts at the top (threshold violations)
+            if (redRadarAlerts.length > 0) {
+                const redAlertsContainer = document.createElement('div');
+                redAlertsContainer.className = 'radar-alerts-container radar-alerts-red';
+                
+                redRadarAlerts.forEach(alert => {
+                    const alertItem = createRadarAlertItem(alert.name, null, true, alert.distance);
+                    redAlertsContainer.appendChild(alertItem);
+                });
+                
+                const titleElement = radarSection.querySelector('.section-title');
+                if (titleElement && titleElement.nextSibling) {
+                    radarSection.insertBefore(redAlertsContainer, titleElement.nextSibling);
+                } else {
+                    radarSection.appendChild(redAlertsContainer);
+                }
+            }
+
+            // Add orange radar alerts next (consecutive changes)
+            if (orangeRadarAlerts.length > 0) {
+                const newItems = orangeRadarAlerts.filter(alert => {
                     const alertKey = `${berth.name}::RADAR::${alert.name}::ALERT`;
                     return !displayedPriorityItems.has(alertKey);
                 });
                 
                 if (newItems.length > 0) {
                     // Render existing alerts immediately
-                    const existingAlerts = radarAlerts.filter(alert => {
+                    const existingAlerts = orangeRadarAlerts.filter(alert => {
                         const alertKey = `${berth.name}::RADAR::${alert.name}::ALERT`;
                         return displayedPriorityItems.has(alertKey);
                     });
                     
                     if (existingAlerts.length > 0) {
-                        const radarAlertsContainer = document.createElement('div');
-                        radarAlertsContainer.className = 'radar-alerts-container';
+                        const orangeAlertsContainer = document.createElement('div');
+                        orangeAlertsContainer.className = 'radar-alerts-container radar-alerts-orange';
                         existingAlerts.forEach(alert => {
-                            const alertItem = createRadarAlertItem(alert.name, alert.direction);
-                            radarAlertsContainer.appendChild(alertItem);
+                            const alertItem = createRadarAlertItem(alert.name, alert.direction, false);
+                            orangeAlertsContainer.appendChild(alertItem);
                         });
-                        radarSection.appendChild(radarAlertsContainer);
+                        
+                        const redContainer = radarSection.querySelector('.radar-alerts-red');
+                        if (redContainer && redContainer.nextSibling) {
+                            radarSection.insertBefore(orangeAlertsContainer, redContainer.nextSibling);
+                        } else {
+                            radarSection.appendChild(orangeAlertsContainer);
+                        }
                     }
                     
                     // Render new alerts with delay
                     setTimeout(() => {
-                        const existingContainer = radarSection.querySelector('.radar-alerts-container');
+                        const existingContainer = radarSection.querySelector('.radar-alerts-orange');
                         if (existingContainer) {
                             existingContainer.remove();
                         }
                         
-                        const radarAlertsContainer = document.createElement('div');
-                        radarAlertsContainer.className = 'radar-alerts-container';
-                        radarAlerts.forEach(alert => {
-                            const alertItem = createRadarAlertItem(alert.name, alert.direction);
-                            radarAlertsContainer.appendChild(alertItem);
+                        const orangeAlertsContainer = document.createElement('div');
+                        orangeAlertsContainer.className = 'radar-alerts-container radar-alerts-orange';
+                        orangeRadarAlerts.forEach(alert => {
+                            const alertItem = createRadarAlertItem(alert.name, alert.direction, false);
+                            orangeAlertsContainer.appendChild(alertItem);
                         });
                         
-                        // Insert at the top (after title)
-                        const titleElement = radarSection.querySelector('.section-title');
-                        if (titleElement && titleElement.nextSibling) {
-                            radarSection.insertBefore(radarAlertsContainer, titleElement.nextSibling);
+                        // Insert after red alerts or at top
+                        const redContainer = radarSection.querySelector('.radar-alerts-red');
+                        if (redContainer && redContainer.nextSibling) {
+                            radarSection.insertBefore(orangeAlertsContainer, redContainer.nextSibling);
                         } else {
-                            radarSection.appendChild(radarAlertsContainer);
+                            const titleElement = radarSection.querySelector('.section-title');
+                            if (titleElement && titleElement.nextSibling) {
+                                radarSection.insertBefore(orangeAlertsContainer, titleElement.nextSibling);
+                            } else {
+                                radarSection.appendChild(orangeAlertsContainer);
+                            }
                         }
                     }, 1200);
                 } else {
                     // All alerts already displayed, render immediately
-                    const radarAlertsContainer = document.createElement('div');
-                    radarAlertsContainer.className = 'radar-alerts-container';
-                    radarAlerts.forEach(alert => {
-                        const alertItem = createRadarAlertItem(alert.name, alert.direction);
-                        radarAlertsContainer.appendChild(alertItem);
+                    const orangeAlertsContainer = document.createElement('div');
+                    orangeAlertsContainer.className = 'radar-alerts-container radar-alerts-orange';
+                    orangeRadarAlerts.forEach(alert => {
+                        const alertItem = createRadarAlertItem(alert.name, alert.direction, false);
+                        orangeAlertsContainer.appendChild(alertItem);
                     });
-                    const titleElement = radarSection.querySelector('.section-title');
-                    if (titleElement && titleElement.nextSibling) {
-                        radarSection.insertBefore(radarAlertsContainer, titleElement.nextSibling);
+                    
+                    const redContainer = radarSection.querySelector('.radar-alerts-red');
+                    if (redContainer && redContainer.nextSibling) {
+                        radarSection.insertBefore(orangeAlertsContainer, redContainer.nextSibling);
                     } else {
-                        radarSection.appendChild(radarAlertsContainer);
+                        const titleElement = radarSection.querySelector('.section-title');
+                        if (titleElement && titleElement.nextSibling) {
+                            radarSection.insertBefore(orangeAlertsContainer, titleElement.nextSibling);
+                        } else {
+                            radarSection.appendChild(orangeAlertsContainer);
+                        }
                     }
                 }
-                
-                // Add orange radar rows at the top (after alerts)
-                orangeRadarRows.forEach(row => radarSection.appendChild(row));
-                
-                // Add normal radar rows
-                radarRows.forEach(row => radarSection.appendChild(row));
-            } else {
-                // No alerts, just add normal rows
-                radarRows.forEach(row => radarSection.appendChild(row));
             }
+            
+            // Add normal radar rows at the bottom
+            radarRows.forEach(row => radarSection.appendChild(row));
         }
 
         berthCard.appendChild(radarSection);
@@ -553,6 +957,36 @@
             bollardSection.appendChild(orangeAlertsContainer);
         }
 
+        // Collect all hooks by bollard for charts (including red, orange, and white hooks)
+        const allBollardsMap = new Map();
+        
+        // Add red hooks
+        redHooks.forEach(hook => {
+            const bollardName = hook.info.bollardName;
+            if (!allBollardsMap.has(bollardName)) {
+                allBollardsMap.set(bollardName, []);
+            }
+            allBollardsMap.get(bollardName).push(hook.info);
+        });
+        
+        // Add orange hooks
+        orangeHooks.forEach(hook => {
+            const bollardName = hook.info.bollardName;
+            if (!allBollardsMap.has(bollardName)) {
+                allBollardsMap.set(bollardName, []);
+            }
+            allBollardsMap.get(bollardName).push(hook.info);
+        });
+        
+        // Add white hooks
+        whiteHooks.forEach(h => {
+            const bollardName = h.bollard.name;
+            if (!allBollardsMap.has(bollardName)) {
+                allBollardsMap.set(bollardName, []);
+            }
+            allBollardsMap.get(bollardName).push(h.info);
+        });
+
         // Render normal hooks grouped by bollard (like image 4)
         const bollardsMap = new Map();
         whiteHooks.forEach(h => {
@@ -566,10 +1000,21 @@
             const bDiv = document.createElement('div');
             bDiv.className = 'subsection';
 
+            const subsectionHeader = document.createElement('div');
+            subsectionHeader.className = 'subsection-header';
+            
             const bHeader = document.createElement('div');
             bHeader.className = 'subsection-title';
             bHeader.textContent = bollard.name;
-            bDiv.appendChild(bHeader);
+            subsectionHeader.appendChild(bHeader);
+            
+            bDiv.appendChild(subsectionHeader);
+
+            const subsectionContent = document.createElement('div');
+            subsectionContent.className = 'subsection-content';
+
+            const hooksContainer = document.createElement('div');
+            hooksContainer.className = 'hooks-container';
 
             hooks.forEach(h => {
                 const row = document.createElement('div');
@@ -583,9 +1028,33 @@
                 const valuesContainer = renderHistoryValues(hookHistory[h.info.key], h.info.key, h.info.previousValue);
                 row.appendChild(valuesContainer);
 
-                bDiv.appendChild(row);
+                hooksContainer.appendChild(row);
             });
 
+            subsectionContent.appendChild(hooksContainer);
+            
+            // Add chart if there are hooks for this bollard
+            const allHooksForBollard = allBollardsMap.get(bollard.name) || [];
+            if (allHooksForBollard.length > 0) {
+                const chartId = `chart-${bollard.name.replace(/\s+/g, '-')}`;
+                const preservedChart = existingCharts.get(bollard.name);
+                
+                if (preservedChart && preservedChart.element) {
+                    // Use preserved chart container and update it
+                    subsectionContent.appendChild(preservedChart.element);
+                    // Update chart data after a short delay to ensure it's in DOM
+                    setTimeout(() => {
+                        updateBollardChart(chartId, allHooksForBollard);
+                    }, 50);
+                } else {
+                    // Create new chart
+                    const chart = createBollardChart(bollard.name, allHooksForBollard);
+                    subsectionContent.appendChild(chart);
+                    window.bollardChartsMap.set(bollard.name, { id: chartId, hooks: allHooksForBollard });
+                }
+            }
+            
+            bDiv.appendChild(subsectionContent);
             bollardSection.appendChild(bDiv);
         });
 
@@ -600,29 +1069,79 @@
         berthCard.appendChild(bollardSection);
         containers.berthDetailContainer.appendChild(berthCard);
         
-        // Render Status section at the top
-        const statusSection = createStatusSection(hasAnyIssues);
+        // Collect recommendations for status section
+        const recommendations = [];
+        
+        // Add radar distance recommendations
+        redRadarAlerts.forEach(alert => {
+            const distance = alert.distance;
+            let message = '';
+            let percentage = 0;
+            
+            if (distance < DISTANCE_THRESHOLD_LOW) {
+                const increaseNeeded = DISTANCE_THRESHOLD_LOW - distance;
+                percentage = (increaseNeeded / distance) * 100;
+                message = `Distance at radar ${alert.name} should be increased by ${formatValue(percentage)}%`;
+            } else if (distance > DISTANCE_THRESHOLD_HIGH) {
+                const decreaseNeeded = distance - DISTANCE_THRESHOLD_HIGH;
+                percentage = (decreaseNeeded / distance) * 100;
+                message = `Distance at radar ${alert.name} should be decreased by ${formatValue(percentage)}%`;
+            }
+            
+            if (message) {
+                recommendations.push(message);
+            }
+        });
+        
+        // Add hook tension recommendations
+        redHooks.forEach(hook => {
+            const tension = hook.info.tension;
+            const redIssue = hook.issue;
+            let message = '';
+            let percentage = 0;
+            
+            if (tension > TENSION_THRESHOLD_HIGH) {
+                const decreaseNeeded = tension - TENSION_THRESHOLD_HIGH;
+                percentage = tension !== 0 ? (decreaseNeeded / tension) * 100 : 0;
+                message = `Tension on ${hook.info.bollardName}'s ${hook.info.hookName} should be decreased by ${formatValue(percentage)}%`;
+            } else if (tension < TENSION_THRESHOLD_LOW && tension !== null && tension !== undefined) {
+                if (Math.abs(tension) < 0.001) {
+                    message = `Tension on ${hook.info.bollardName}'s ${hook.info.hookName} should be increased to ${TENSION_THRESHOLD_LOW}`;
+                } else {
+                    const increaseNeeded = TENSION_THRESHOLD_LOW - tension;
+                    percentage = (increaseNeeded / Math.abs(tension)) * 100;
+                    message = `Tension on ${hook.info.bollardName}'s ${hook.info.hookName} should be increased by ${formatValue(percentage)}%`;
+                }
+            }
+            
+            if (message) {
+                recommendations.push(message);
+            }
+        });
+        
+        // Render Status section at the top with recommendations
+        const statusSection = createStatusSection(hasAnyIssues, recommendations);
         containers.berthDetailContainer.insertBefore(statusSection, containers.berthDetailContainer.firstChild);
         
-        // Update displayed items for radar alerts (after delay if new items)
+        // Update displayed items for orange radar alerts (after delay if new items)
         setTimeout(() => {
-            radarAlerts.forEach(alert => {
+            orangeRadarAlerts.forEach(alert => {
                 const alertKey = `${berth.name}::RADAR::${alert.name}::ALERT`;
                 displayedPriorityItems.add(alertKey);
             });
             
-            // Clean up displayedPriorityItems
-            const currentKeys = new Set();
-            radarAlerts.forEach(alert => {
-                currentKeys.add(`${berth.name}::RADAR::${alert.name}::ALERT`);
+            // Clean up displayedPriorityItems for orange radar alerts
+            const currentOrangeKeys = new Set();
+            orangeRadarAlerts.forEach(alert => {
+                currentOrangeKeys.add(`${berth.name}::RADAR::${alert.name}::ALERT`);
             });
             
             displayedPriorityItems.forEach(key => {
-                if (key.includes('::RADAR::') && !currentKeys.has(key)) {
+                if (key.includes('::RADAR::') && key.includes('::ALERT') && !currentOrangeKeys.has(key)) {
                     displayedPriorityItems.delete(key);
                 }
             });
-        }, radarAlerts.length > 0 ? 1300 : 0);
+        }, orangeRadarAlerts.length > 0 ? 1300 : 0);
     }
 
     function attachToEvtSource() {

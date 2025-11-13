@@ -55,6 +55,12 @@ function createBerthCard(berth) {
     berthName.textContent = berth.name || 'Unnamed Berth';
     berthName.className = 'berth-card-title';
 
+    // Display ship name if available
+    const shipName = (berth.ship && berth.ship.name) ? berth.ship.name : 'No Ship';
+    const shipInfo = document.createElement('div');
+    shipInfo.className = 'berth-ship-name';
+    shipInfo.textContent = shipName;
+
     const berthInfo = document.createElement('div');
     berthInfo.className = 'berth-card-info';
 
@@ -79,6 +85,7 @@ function createBerthCard(berth) {
     berthInfo.appendChild(hooksInfo);
     
     card.appendChild(berthName);
+    card.appendChild(shipInfo);
     card.appendChild(berthInfo);
     berthsContainer.appendChild(card);
 }
