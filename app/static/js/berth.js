@@ -7,9 +7,9 @@
     const previousValues = {}; // Track previous values for trend detection
     
     // Threshold constants
-    const TENSION_THRESHOLD_HIGH = 7;
+    const TENSION_THRESHOLD_HIGH = 10;
     const TENSION_THRESHOLD_LOW = -1;
-    const CONSECUTIVE_CHANGES_THRESHOLD = 5;
+    const CONSECUTIVE_CHANGES_THRESHOLD = 4;
     
     // Distance threshold constants
     const DISTANCE_THRESHOLD_HIGH = 15;
