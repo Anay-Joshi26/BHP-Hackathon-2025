@@ -21,6 +21,18 @@ def berth_detail(berth_name):
     return render_template('berth.html', berth_name=berth_name)
 
 
+@main.route('/alerts')
+def alerts():
+    """Display alerts/status page"""
+    return render_template('alerts.html')
+
+
+@main.route('/berth/<berth_name>/alerts')
+def berth_alerts(berth_name):
+    """Display alerts/status page for a specific berth"""
+    return render_template('berth_alerts.html', berth_name=berth_name)
+
+
 @main.route('/data/all', methods=['POST'])
 def receive_mooring_data():
     """Receive mooring data from generator and push to all connected clients"""

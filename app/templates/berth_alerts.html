@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ berth_name }} Alerts - BHP Ship Monitoring</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="header-nav">
+        <a href="/berth/{{ berth_name }}" class="back-button">← Back to Berth</a>
+        <h1>{{ berth_name }} - Alerts</h1>
+    </div>
+    
+    <div id="location-name-container">
+        <h2 id="location-name">Loading location...</h2>
+        <h3 id="ship-name" class="ship-name">Loading ship name...</h3>
+    </div>
+
+    <div id="alerts-container">
+        <!-- Status will be loaded here -->
+        <div class="loading-state">Loading alerts...</div>
+    </div>
+
+    <audio id="alertSound" src="{{ url_for('static', filename='audio/alarm.wav') }}" preload="auto"></audio>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/berth_alerts.js') }}"></script>
+</body>
+</html>
+
