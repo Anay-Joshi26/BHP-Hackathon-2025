@@ -317,8 +317,8 @@ h1 {
 
 .bollard-chart-container {
     flex-shrink: 0;
-    width: 650px;
-    min-width: 650px;
+    width: 630px;
+    min-width: 630px;
     background: white;
     border-radius: 8px;
     padding: 20px;
@@ -661,7 +661,7 @@ h1 {
 }
 
 .hook-alert-orange {
-    background: #ea580c;
+    background: #ff752b;
     color: white;
 }
 
