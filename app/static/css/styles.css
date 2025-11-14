@@ -276,12 +276,36 @@ h1 {
 
 .data-row-orange {
     background: #fed7aa !important;
-    border-left: 4px solid #ea580c !important;
+    border-left: 4px solid #e79639 !important;
 }
 
 .data-row-orange .data-label {
     color: #9a3412;
     font-weight: 700;
+}
+
+.data-row-inactive {
+    opacity: 0.6;
+}
+
+.data-row-inactive .data-label {
+    color: #a0aec0;
+    font-style: italic;
+}
+
+.not-in-use-message {
+    color: #a0aec0;
+    font-style: italic;
+    font-size: 0.9em;
+    margin-left: auto;
+}
+
+.data-row-faulted {
+    border-left: 4px solid #ff2c2c !important;
+}
+
+.data-row-faulted .data-label {
+    font-weight: 600;
 }
 
 .subsection {
