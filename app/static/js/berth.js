@@ -7,8 +7,8 @@
     const previousValues = {}; // Track previous values for trend detection
     
     // Threshold constants
-    const TENSION_THRESHOLD_HIGH = 10;
-    const TENSION_THRESHOLD_LOW = -1;
+    const TENSION_THRESHOLD_HIGH = 8;
+    const TENSION_THRESHOLD_LOW = 0;
     const CONSECUTIVE_CHANGES_THRESHOLD = 4;
     
     // Distance threshold constants
@@ -730,14 +730,21 @@
         }});
     }
     
-    function createStatusSection(hasIssues, recommendations = []) {
+    function createStatusSection(hasIssues, recommendations = [], statusColor = 'green', orangeRecommendations = []) {
         const statusSection = document.createElement('div');
         statusSection.className = 'status-section';
         
         const audio = document.getElementById('alertSound');
 
         if (hasIssues) {
-        statusSection.classList.add('status-red');
+            // Set status color: red > orange > green
+            if (statusColor === 'red') {
+                statusSection.classList.add('status-red');
+            } else if (statusColor === 'orange') {
+                statusSection.classList.add('status-orange');
+            } else {
+                statusSection.classList.add('status-green');
+            }
         
         // Play alert sound when issues are detected
             if (audio) {
@@ -784,16 +791,25 @@
         statusSection.appendChild(statusContent);
         
         // Add recommendations if there are issues
-        if (hasIssues && recommendations.length > 0) {
+        if (hasIssues && (recommendations.length > 0 || orangeRecommendations.length > 0)) {
             const recommendationsContainer = document.createElement('div');
             recommendationsContainer.className = 'status-recommendations';
             
             const recommendationsList = document.createElement('ul');
             recommendationsList.className = 'recommendations-list';
             
+            // Add orange recommendations first (consecutive changes)
+            orangeRecommendations.forEach(recommendation => {
+                const listItem = document.createElement('li');
+                listItem.className = 'recommendation-item recommendation-item-orange';
+                listItem.textContent = recommendation;
+                recommendationsList.appendChild(listItem);
+            });
+            
+            // Add red recommendations (threshold violations)
             recommendations.forEach(recommendation => {
                 const listItem = document.createElement('li');
-                listItem.className = 'recommendation-item';
+                listItem.className = 'recommendation-item recommendation-item-red';
                 listItem.textContent = recommendation;
                 recommendationsList.appendChild(listItem);
             });
@@ -1476,8 +1492,23 @@
         
         // Collect recommendations for status section
         const recommendations = [];
+        const orangeRecommendations = [];
         
-        // Add radar distance recommendations
+        // Add orange radar consecutive change recommendations
+        orangeRadarAlerts.forEach(alert => {
+            const directionText = alert.direction === 'Increased' ? 'increasing' : 'decreasing';
+            orangeRecommendations.push(`Distance at radar ${alert.name} has been ${directionText} ${CONSECUTIVE_CHANGES_THRESHOLD} consecutive times`);
+        });
+        
+        // Add orange hook consecutive change recommendations
+        orangeHooks.forEach(hook => {
+            const history = hookHistory[hook.info.key] || [];
+            const consecutiveData = updateConsecutiveChanges(hook.info.key, history);
+            const directionText = consecutiveData.direction === 'up' ? 'increasing' : 'decreasing';
+            orangeRecommendations.push(`Tension on ${hook.info.bollardName}'s ${hook.info.hookName} has been ${directionText} ${CONSECUTIVE_CHANGES_THRESHOLD} consecutive times`);
+        });
+        
+        // Add radar distance recommendations (red alerts)
         redRadarAlerts.forEach(alert => {
             const distance = alert.distance;
             let message = '';
@@ -1524,8 +1555,13 @@
             }
         });
         
+        // Determine status color: red > orange > green
+        const hasRedIssues = redRadarAlerts.length > 0 || redHooks.length > 0;
+        const hasOrangeIssues = orangeRadarAlerts.length > 0 || orangeHooks.length > 0;
+        const statusColor = hasRedIssues ? 'red' : (hasOrangeIssues ? 'orange' : 'green');
+        
         // Render Status section at the top with recommendations
-        const statusSection = createStatusSection(hasAnyIssues, recommendations);
+        const statusSection = createStatusSection(hasAnyIssues, recommendations, statusColor, orangeRecommendations);
         containers.berthDetailContainer.insertBefore(statusSection, containers.berthDetailContainer.firstChild);
         
         // Update displayed items for orange radar alerts (after delay if new items)

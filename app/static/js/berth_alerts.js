@@ -4,9 +4,9 @@
     'use strict';
 
     // Threshold constants (EXACT SAME AS berth.js)
-    const TENSION_THRESHOLD_HIGH = 7;
-    const TENSION_THRESHOLD_LOW = -1;
-    const CONSECUTIVE_CHANGES_THRESHOLD = 5;
+    const TENSION_THRESHOLD_HIGH = 8;
+    const TENSION_THRESHOLD_LOW = 0;
+    const CONSECUTIVE_CHANGES_THRESHOLD = 4;
     const DISTANCE_THRESHOLD_HIGH = 15;  // MUST MATCH berth.js
     const DISTANCE_THRESHOLD_LOW = 0;    // MUST MATCH berth.js
 
@@ -221,7 +221,9 @@
         
         // Arrays to store issues for THIS berth only
         const redRadarAlerts = [];
+        const orangeRadarAlerts = [];
         const redHooks = [];
+        const orangeHooks = [];
 
         // Process ONLY this berth's radars (EXACT SAME LOGIC AS berth.js)
         if (berth.radars && Array.isArray(berth.radars)) {
@@ -247,12 +249,20 @@
                 const isThresholdViolation = shipDistance !== null && shipDistance !== undefined && 
                     (shipDistance < DISTANCE_THRESHOLD_LOW || shipDistance > DISTANCE_THRESHOLD_HIGH);
                 
-                // Add to redRadarAlerts if threshold violation (EXACT SAME AS berth.js)
+                // Check for threshold violations first (red) - EXACT SAME AS berth.js
                 if (isThresholdViolation) {
                     hasAnyIssues = true;
                     redRadarAlerts.push({
                         name: r.name,
                         distance: shipDistance
+                    });
+                } else if (consecutiveData.count >= CONSECUTIVE_CHANGES_THRESHOLD) {
+                    // Check for consecutive changes (orange) - only if not threshold violation
+                    hasAnyIssues = true;
+                    const directionText = consecutiveData.direction === 'up' ? 'Increased' : 'Decreased';
+                    orangeRadarAlerts.push({
+                        name: r.name,
+                        direction: directionText
                     });
                 }
             });
@@ -284,21 +294,58 @@
                     const consecutiveData = updateConsecutiveChanges(key, history);
                     const issues = checkPriority(key, tension, consecutiveData);
 
-                    // Check for red threshold issues (EXACT SAME AS berth.js)
+                    // Check for red threshold issues (prioritize red over orange) - EXACT SAME AS berth.js
                     const redIssue = issues.find(i => i.color === 'red');
                     if (redIssue) {
                         hasAnyIssues = true;
+                        // Store in EXACT SAME STRUCTURE as berth.js
                         redHooks.push({
-                            bollardName: b.name,
-                            hookName: h.name,
-                            tension: tension
+                            info: {
+                                bollardName: b.name,
+                                hookName: h.name,
+                                tension: tension,
+                                key: key
+                            },
+                            issue: redIssue
                         });
+                    } else {
+                        // Check for orange consecutive issues - EXACT SAME AS berth.js
+                        const orangeIssue = issues.find(i => i.color === 'orange');
+                        if (orangeIssue) {
+                            hasAnyIssues = true;
+                            orangeHooks.push({
+                                info: {
+                                    bollardName: b.name,
+                                    hookName: h.name,
+                                    tension: tension,
+                                    key: key
+                                },
+                                issue: orangeIssue
+                            });
+                        }
                     }
                 });
             });
         }
 
         // Generate recommendations ONLY from THIS berth's issues
+        const orangeRecommendations = [];
+        
+        // Add orange radar consecutive change recommendations (EXACT SAME AS berth.js)
+        orangeRadarAlerts.forEach(alert => {
+            const directionText = alert.direction === 'Increased' ? 'increasing' : 'decreasing';
+            orangeRecommendations.push(`Distance at radar ${alert.name} has been ${directionText} ${CONSECUTIVE_CHANGES_THRESHOLD} consecutive times`);
+        });
+        
+        // Add orange hook consecutive change recommendations (EXACT SAME AS berth.js)
+        orangeHooks.forEach(hook => {
+            const history = hookHistory[hook.info.key] || [];
+            const consecutiveData = updateConsecutiveChanges(hook.info.key, history);
+            const directionText = consecutiveData.direction === 'up' ? 'increasing' : 'decreasing';
+            orangeRecommendations.push(`Tension on ${hook.info.bollardName}'s ${hook.info.hookName} has been ${directionText} ${CONSECUTIVE_CHANGES_THRESHOLD} consecutive times`);
+        });
+        
+        // Add radar distance recommendations (red alerts)
         redRadarAlerts.forEach(alert => {
             const distance = alert.distance;
             let message = '';
@@ -321,21 +368,22 @@
         
         // Add hook tension recommendations (EXACT SAME LOGIC AS berth.js)
         redHooks.forEach(hook => {
-            const tension = hook.tension;
+            const tension = hook.info.tension;
+            const redIssue = hook.issue;
             let message = '';
             let percentage = 0;
             
             if (tension > TENSION_THRESHOLD_HIGH) {
                 const decreaseNeeded = tension - TENSION_THRESHOLD_HIGH;
                 percentage = tension !== 0 ? (decreaseNeeded / tension) * 100 : 0;
-                message = `Tension on ${hook.bollardName}'s ${hook.hookName} should be decreased by ${formatValue(percentage)}%`;
+                message = `Tension on ${hook.info.bollardName}'s ${hook.info.hookName} should be decreased by ${formatValue(percentage)}%`;
             } else if (tension < TENSION_THRESHOLD_LOW && tension !== null && tension !== undefined) {
                 if (Math.abs(tension) < 0.001) {
-                    message = `Tension on ${hook.bollardName}'s ${hook.hookName} should be increased to ${TENSION_THRESHOLD_LOW}`;
+                    message = `Tension on ${hook.info.bollardName}'s ${hook.info.hookName} should be increased to ${TENSION_THRESHOLD_LOW}`;
                 } else {
                     const increaseNeeded = TENSION_THRESHOLD_LOW - tension;
                     percentage = (increaseNeeded / Math.abs(tension)) * 100;
-                    message = `Tension on ${hook.bollardName}'s ${hook.hookName} should be increased by ${formatValue(percentage)}%`;
+                    message = `Tension on ${hook.info.bollardName}'s ${hook.info.hookName} should be increased by ${formatValue(percentage)}%`;
                 }
             }
             
@@ -351,21 +399,33 @@
         const alertJustTriggered = hasAnyIssues && !previousHasIssues;
         previousHasIssues = hasAnyIssues;
 
-        console.log('Berth:', berthName, 'Has Issues:', hasAnyIssues, 'Recommendations:', allRecommendations.length);
+        // Determine status color: red > orange > green (EXACT SAME AS berth.js)
+        const hasRedIssues = redRadarAlerts.length > 0 || redHooks.length > 0;
+        const hasOrangeIssues = orangeRadarAlerts.length > 0 || orangeHooks.length > 0;
+        const statusColor = hasRedIssues ? 'red' : (hasOrangeIssues ? 'orange' : 'green');
+
+        console.log('Berth:', berthName, 'Has Issues:', hasAnyIssues, 'Status Color:', statusColor, 'Recommendations:', allRecommendations.length);
 
         // Create and display status section
-        const statusSection = createStatusSection(hasAnyIssues, allRecommendations, alertJustTriggered);
+        const statusSection = createStatusSection(hasAnyIssues, allRecommendations, alertJustTriggered, statusColor, orangeRecommendations);
         alertsContainer.appendChild(statusSection);
     }
 
-    function createStatusSection(hasIssues, recommendations = [], alertJustTriggered = false) {
+    function createStatusSection(hasIssues, recommendations = [], alertJustTriggered = false, statusColor = 'green', orangeRecommendations = []) {
         const statusSection = document.createElement('div');
         statusSection.className = 'status-section status-section-alerts';
 
         const audio = document.getElementById('alertSound');
 
         if (hasIssues) {
-            statusSection.classList.add('status-red');
+            // Set status color: red > orange > green (EXACT SAME AS berth.js)
+            if (statusColor === 'red') {
+                statusSection.classList.add('status-red');
+            } else if (statusColor === 'orange') {
+                statusSection.classList.add('status-orange');
+            } else {
+                statusSection.classList.add('status-green');
+            }
             
             // Play alert sound when issues are detected
             if (audio) {
@@ -440,16 +500,25 @@
         statusSection.appendChild(statusContent);
         
         // Add recommendations if there are issues
-        if (hasIssues && recommendations.length > 0) {
+        if (hasIssues && (recommendations.length > 0 || orangeRecommendations.length > 0)) {
             const recommendationsContainer = document.createElement('div');
             recommendationsContainer.className = 'status-recommendations';
             
             const recommendationsList = document.createElement('ul');
             recommendationsList.className = 'recommendations-list';
             
+            // Add orange recommendations first (consecutive changes)
+            orangeRecommendations.forEach(recommendation => {
+                const listItem = document.createElement('li');
+                listItem.className = 'recommendation-item recommendation-item-orange';
+                listItem.textContent = recommendation;
+                recommendationsList.appendChild(listItem);
+            });
+            
+            // Add red recommendations (threshold violations)
             recommendations.forEach(recommendation => {
                 const listItem = document.createElement('li');
-                listItem.className = 'recommendation-item';
+                listItem.className = 'recommendation-item recommendation-item-red';
                 listItem.textContent = recommendation;
                 recommendationsList.appendChild(listItem);
             });
