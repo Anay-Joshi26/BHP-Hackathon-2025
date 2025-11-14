@@ -1196,8 +1196,13 @@
 
         (berth.bollards || []).forEach(b => {
             (b.hooks || []).forEach(h => {
-                if (h && h.attachedLine !== null && h.attachedLine !== undefined) {
-                    const key = `${berth.name}::BOLLARD::${b.name}::HOOK::${h.name}`;
+                if (!h) return;
+                
+                const isInUse = h.attachedLine !== null && h.attachedLine !== undefined;
+                const key = `${berth.name}::BOLLARD::${b.name}::HOOK::${h.name}`;
+                
+                if (isInUse) {
+                    // Hook is in use - process normally
                     const previousValue = previousValues[key] || null;
                     addToHistory(hookHistory, key, h.tension);
                     previousValues[key] = h.tension;
@@ -1213,7 +1218,9 @@
                         attachedLine: h.attachedLine,
                         key: key,
                         previousValue: previousValue,
-                        tension: h.tension
+                        tension: h.tension,
+                        isInUse: true,
+                        faulted: h.faulted === true
                     };
                     
                     // Check for red threshold issues (prioritize red over orange)
@@ -1242,6 +1249,24 @@
                             });
                         }
                     }
+                } else {
+                    // Hook is not in use - add to white hooks with special flag
+                    const hookInfo = {
+                        bollardName: b.name,
+                        hookName: h.name,
+                        attachedLine: null,
+                        key: key,
+                        previousValue: null,
+                        tension: null,
+                        isInUse: false,
+                        faulted: h.faulted === true
+                    };
+                    
+                    whiteHooks.push({
+                        bollard: b,
+                        hook: h,
+                        info: hookInfo
+                    });
                 }
             });
         });
@@ -1364,14 +1389,49 @@
                 if (h.isOrange) {
                     row.classList.add('data-row-orange');
                 }
+                
+                // Check if hook is not in use
+                const isNotInUse = !h.info.isInUse;
 
                 const label = document.createElement('span');
                 label.className = 'data-label';
-                label.textContent = `${h.hook.name} (${h.hook.attachedLine})`;
+                
+                // Check if hook is faulted
+                const isFaulted = h.hook.faulted === true;
+                
+                if (isNotInUse) {
+                    if (isFaulted) {
+                        label.textContent = `${h.hook.name} (not in use) [faulted]`;
+                    } else {
+                        label.textContent = `${h.hook.name} (not in use)`;
+                    }
+                    row.classList.add('data-row-inactive');
+                } else {
+                    if (isFaulted) {
+                        label.textContent = `${h.hook.name} (${h.hook.attachedLine}) [faulted]`;
+                    } else {
+                        label.textContent = `${h.hook.name} (${h.hook.attachedLine})`;
+                    }
+                }
+                
+                // Add faulted styling if needed
+                if (isFaulted) {
+                    row.classList.add('data-row-faulted');
+                }
+                
                 row.appendChild(label);
 
-                const valuesContainer = renderHistoryValues(hookHistory[h.info.key], h.info.key, h.info.previousValue);
-                row.appendChild(valuesContainer);
+                if (isNotInUse) {
+                    // For hooks not in use, show message instead of history values
+                    const notInUseMessage = document.createElement('span');
+                    notInUseMessage.className = 'not-in-use-message';
+                    notInUseMessage.textContent = 'Not in use';
+                    row.appendChild(notInUseMessage);
+                } else {
+                    // Show history values for hooks in use
+                    const valuesContainer = renderHistoryValues(hookHistory[h.info.key], h.info.key, h.info.previousValue);
+                    row.appendChild(valuesContainer);
+                }
 
                 hooksContainer.appendChild(row);
             });
